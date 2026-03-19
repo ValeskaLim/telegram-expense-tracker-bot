@@ -44,14 +44,18 @@ def format_rupiah(amount: int) -> str:
 
 
 async def handle_expense_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle free-text expense input: '8 Maret 2026 25000 Makan'"""
     text = update.message.text.strip()
 
-    # Skip if it looks like a command
     if text.startswith("/"):
         return
 
-    # Expected: <day> <month> <year> <amount> <notes...>
+    # Extract optional [category:...]
+    category = 'general'
+    category_match = re.search(r'\[category:(\w+)\]', text, re.IGNORECASE)
+    if category_match:
+        category = category_match.group(1).lower()
+        text = text[:category_match.start()].strip()  # remove it from text before parsing
+
     pattern = r"^(\d+)\s+(\w+)\s+(\d{4})\s+(\d+)\s+(.+)$"
     match = re.match(pattern, text, re.IGNORECASE)
 
@@ -59,10 +63,10 @@ async def handle_expense_input(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text(
             "❌ *Invalid format!*\n\n"
             "📌 Correct format:\n"
-            "`<day> <month> <year> <amount> <notes>`\n\n"
-            "✅ Example:\n"
+            "`<day> <month> <year> <amount> <notes> [category:name]`\n\n"
+            "✅ Examples:\n"
             "`8 Maret 2026 25000 Makan siang`\n"
-            "`15 April 2026 50000 Transportasi`",
+            "`8 Maret 2026 25000 Makan siang [category:food]`",
             parse_mode="Markdown"
         )
         return
@@ -77,19 +81,20 @@ async def handle_expense_input(update: Update, context: ContextTypes.DEFAULT_TYP
             "📌 Use Indonesian month names:\n"
             "`Januari, Februari, Maret, April, Mei, Juni,`\n"
             "`Juli, Agustus, September, Oktober, November, Desember`\n\n"
-            "✅ Example: `8 Maret 2026 25000 Makan`",
+            "✅ Example: `8 Maret 2026 25000 Makan [category:food]`",
             parse_mode="Markdown"
         )
         return
 
     amount = int(amount_str)
-    db.add_expense(date, amount, notes.strip())
+    db.add_expense(date, amount, notes.strip(), category)
 
     await update.message.reply_text(
         f"✅ *Expense saved!*\n\n"
         f"📅 Date: {date.strftime('%d %B %Y')}\n"
         f"💰 Amount: {format_rupiah(amount)}\n"
-        f"📝 Notes: {notes.strip()}",
+        f"📝 Notes: {notes.strip()}\n"
+        f"🏷️ Category: {category}",
         parse_mode="Markdown"
     )
 
@@ -133,7 +138,7 @@ async def get_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total = sum(e["amount"] for e in expenses)
     lines = [f"📅 *Expenses on {date.strftime('%d %B %Y')}*\n"]
     for e in expenses:
-        lines.append(f"• `[ID:{e['id']}]` {format_rupiah(e['amount'])} — {e['notes']}")
+        lines.append(f"• `[ID:{e['id']}]` {format_rupiah(e['amount'])} — {e['notes']} 🏷️ {e['category']}")
     lines.append(f"\n💰 *Total: {format_rupiah(total)}*")
     lines.append(f"\n_Use `/delete <id>` or `/edit <id> <amount> <notes>` to manage entries._")
 
@@ -210,7 +215,7 @@ async def get_range(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if show_detail:
         for e in expenses:
             date_label = e["date"].strftime("%d %b")
-            lines.append(f"• `[ID:{e['id']}]` [{date_label}] {format_rupiah(e['amount'])} — {e['notes']}")
+            lines.append(f"• `[ID:{e['id']}]` [{date_label}] {format_rupiah(e['amount'])} — {e['notes']} 🏷️ {e['category']}")
         lines.append(f"\n💰 *Total: {format_rupiah(total)}*")
         lines.append(f"\n_Use `/delete <id>` or `/edit <id> <amount> <notes>` to manage entries._")
     else:
@@ -361,7 +366,7 @@ async def edit_expense(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not expense:
         await update.message.reply_text(f"❌ No expense found with *ID {expense_id}*.", parse_mode="Markdown")
         return
-    db.edit_expense(expense_id, new_amount, new_notes)
+    db.edit_expense(expense_id, new_amount, new_notes, expense["category"])
     await update.message.reply_text(
         f"✏️ *Expense updated!*\n\n"
         f"📅 Date: {expense['date'].strftime('%d %B %Y')}\n"
@@ -375,8 +380,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 *Welcome to your Expense Tracker!*\n\n"
         "📌 *How to log an expense:*\n"
-        "`<day> <month> <year> <amount> <notes>`\n"
-        "Example: `8 Maret 2026 25000 Makan siang`\n\n"
+        "`<day> <month> <year> <amount> <notes> [category:name]`\n"
+        "Example: `8 Maret 2026 25000 Makan siang [category:food]`\n\n"
         "📌 *Commands:*\n"
         "`/tanggal <day> <month> <year>` — expenses on a date\n"
         "`/range <start> <end> [detail]` — expenses in a date range\n"
