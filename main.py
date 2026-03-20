@@ -103,30 +103,31 @@ async def get_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/tanggal <day> <month> <year> - Get expenses for a specific date."""
     args = context.args
 
-    if len(args) != 3:
+    if len(args) < 3:
         await update.message.reply_text(
             "❌ *Invalid format!*\n\n"
             "📌 Correct format:\n"
-            "`/tanggal <day> <month> <year>`\n\n"
+            "`/tanggal <day> <month> <year> [category]`\n\n"
             "✅ Example:\n"
-            "`/tanggal 8 Maret 2026`",
+            "`/tanggal 8 Maret 2026 bill`",
             parse_mode="Markdown"
         )
         return
 
-    date = parse_indonesian_date(" ".join(args))
+    date = parse_indonesian_date(" ".join(args[:3]))
     if not date:
         await update.message.reply_text(
             "❌ *Invalid date!*\n\n"
             "📌 Use Indonesian month names:\n"
             "`Januari, Februari, Maret, April, Mei, Juni,`\n"
             "`Juli, Agustus, September, Oktober, November, Desember`\n\n"
-            "✅ Example: `/tanggal 8 Maret 2026`",
+            "✅ Example: `/tanggal 8 Maret 2026 bill`",
             parse_mode="Markdown"
         )
         return
 
-    expenses = db.get_expenses_by_date(date)
+    category = args[3] if len(args) > 3 else None
+    expenses = db.get_expenses_by_date(date, category)
 
     if not expenses:
         await update.message.reply_text(
@@ -244,6 +245,7 @@ async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     current_year = datetime.now().year
+    category = args[2] if len(args) == 3 else None
 
     month1_num = INDONESIAN_MONTHS.get(args[0].lower())
     if not month1_num:
@@ -258,7 +260,7 @@ async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if len(args) == 1:
         # Single month
-        data = db.get_summary_by_months(month1_num, month1_num, current_year)
+        data = db.get_summary_by_months(month1_num, month1_num, current_year, category)
         month_name = MONTH_NAMES[month1_num]
 
         if not data or data[0]["total"] == 0:
@@ -296,7 +298,7 @@ async def summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        data = db.get_summary_by_months(month1_num, month2_num, current_year)
+        data = db.get_summary_by_months(month1_num, month2_num, current_year, category)
 
         if not data:
             await update.message.reply_text(
@@ -342,7 +344,8 @@ async def delete_expense(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🗑️ *Expense deleted!*\n\n"
         f"📅 Date: {expense['date'].strftime('%d %B %Y')}\n"
         f"💰 Amount: {format_rupiah(expense['amount'])}\n"
-        f"📝 Notes: {expense['notes']}",
+        f"📝 Notes: {expense['notes']}\n"
+        f"🏷️ Category: {expense['category']}",
         parse_mode="Markdown"
     )
 
@@ -371,7 +374,8 @@ async def edit_expense(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✏️ *Expense updated!*\n\n"
         f"📅 Date: {expense['date'].strftime('%d %B %Y')}\n"
         f"💰 Amount: {format_rupiah(expense['amount'])} → {format_rupiah(new_amount)}\n"
-        f"📝 Notes: {expense['notes']} → {new_notes}",
+        f"📝 Notes: {expense['notes']} → {new_notes}\n"
+        f"🏷️ Category: {expense['category']}",
         parse_mode="Markdown"
     )
 
@@ -381,9 +385,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👋 *Welcome to your Expense Tracker!*\n\n"
         "📌 *How to log an expense:*\n"
         "`<day> <month> <year> <amount> <notes> [category:name]`\n"
-        "Example: `8 Maret 2026 25000 Makan siang [category:food]`\n\n"
+        "Example: `8 Maret 2026 25000 Makan siang [category:bill]`\n\n"
         "📌 *Commands:*\n"
-        "`/tanggal <day> <month> <year>` — expenses on a date\n"
+        "`/tanggal <day> <month> <year> [category]` — expenses on a date\n"
         "`/range <start> <end> [detail]` — expenses in a date range\n"
         "`/summary <month>` — monthly summary\n"
         "`/summary <month1> <month2>` — multi-month summary\n"

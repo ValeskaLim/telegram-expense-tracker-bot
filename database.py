@@ -40,11 +40,20 @@ class Database:
         )
         self.conn.commit()
 
-    def get_expenses_by_date(self, date: datetime) -> list[dict]:
-        cursor = self.conn.execute(
-            "SELECT id, date, amount, notes, category FROM expenses WHERE date = ? ORDER BY created_at",
-            (date.strftime("%Y-%m-%d"),)
-        )
+    def get_expenses_by_date(self, date: datetime, category: str | None = None) -> list[dict]:
+        query = """
+            SELECT id, date, amount, notes, category FROM expenses WHERE date = ?
+        """
+        
+        params = [date.strftime("%Y-%m-%d")]
+        
+        if category is not None:
+            query += " AND category = ?"
+            params.append(category)
+            
+        query += " ORDER BY created_at"
+        
+        cursor = self.conn.execute(query, params)
         rows = cursor.fetchall()
         return [
             {
