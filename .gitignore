@@ -3,3 +3,5 @@ venv
 __pycache__
 *.pyc
 expenses.db
+test_expenses.db
+test_bot.py
