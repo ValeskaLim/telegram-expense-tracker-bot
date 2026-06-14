@@ -1,24 +1,32 @@
+"""SQLite persistence layer for the Expense Tracker bot."""
 from __future__ import annotations
-import sqlite3
+
 import logging
+import sqlite3
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from contextlib import contextmanager
-from typing import Optional
+from typing import Iterator, Optional
 
 logger = logging.getLogger(__name__)
 
 DB_PATH = Path(__file__).parent / "expenses.db"
 
+# Columns selected for every expense row, in a single place so reads stay in sync.
+_COLUMNS = "id, date, amount, notes, bank"
+
 
 class Database:
-    def __init__(self):
-        self.db_path = DB_PATH
+    """Thin wrapper around the SQLite database storing expenses."""
+
+    def __init__(self, db_path: Path | str = DB_PATH):
+        self.db_path = Path(db_path)
         self._init_db()
 
+    # ── Connection management ────────────────────────────────────────────────
     @contextmanager
-    def get_connection(self):
-        """Context manager for database connections."""
+    def get_connection(self) -> Iterator[sqlite3.Connection]:
+        """Yield a connection, committing on success and rolling back on error."""
         conn = sqlite3.connect(self.db_path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         try:
@@ -31,217 +39,149 @@ class Database:
         finally:
             conn.close()
 
-    def _init_db(self):
-        """Initialize database with tables and indexes."""
+    # ── Schema ───────────────────────────────────────────────────────────────
+    def _init_db(self) -> None:
+        """Create the table/indexes if needed and migrate legacy schemas."""
         with self.get_connection() as conn:
-            # Create main table
-            conn.execute("""
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS expenses (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     date DATE NOT NULL,
                     amount INTEGER NOT NULL,
                     notes TEXT NOT NULL,
-                    category TEXT DEFAULT 'general',
+                    bank TEXT NOT NULL DEFAULT 'unknown',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """)
-            
-            # Create indexes for faster queries
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_expenses_date 
-                ON expenses(date)
-            """)
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_expenses_category 
-                ON expenses(category)
-            """)
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_expenses_date_category 
-                ON expenses(date, category)
-            """)
-            
-            # Run migration for legacy databases
+                """
+            )
             self._migrate(conn)
-            
-        logger.info("Database initialized successfully")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(date)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_expenses_bank ON expenses(bank)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_expenses_date_bank ON expenses(date, bank)"
+            )
+        logger.info("Database initialized at %s", self.db_path)
 
-    def _migrate(self, conn: sqlite3.Connection):
-        """Migrate legacy databases to add category column if missing."""
-        cursor = conn.execute("PRAGMA table_info(expenses)")
-        existing_columns = {row["name"] for row in cursor.fetchall()}
+    def _migrate(self, conn: sqlite3.Connection) -> None:
+        """Bring older databases up to the current schema.
 
-        if "category" not in existing_columns:
-            conn.execute("""
-                ALTER TABLE expenses ADD COLUMN category TEXT DEFAULT 'general'
-            """)
-            logger.info("Added 'category' column to expenses table")
-        
-        # Check if indexes exist (for databases created before indexes were added)
-        cursor = conn.execute("""
-            SELECT name FROM sqlite_master 
-            WHERE type='index' AND tbl_name='expenses'
-        """)
-        existing_indexes = {row["name"] for row in cursor.fetchall()}
-        
-        if "idx_expenses_date" not in existing_indexes:
-            conn.execute("CREATE INDEX idx_expenses_date ON expenses(date)")
-        if "idx_expenses_category" not in existing_indexes:
-            conn.execute("CREATE INDEX idx_expenses_category ON expenses(category)")
-        if "idx_expenses_date_category" not in existing_indexes:
-            conn.execute("CREATE INDEX idx_expenses_date_category ON expenses(date, category)")
+        Handles three states:
+          * no payment column   -> add `bank`
+          * legacy `category`   -> rename it to `bank`
+          * already has `bank`  -> nothing to do
+        """
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(expenses)")}
+        if "bank" in columns:
+            return
+        if "category" in columns:
+            conn.execute("ALTER TABLE expenses RENAME COLUMN category TO bank")
+            logger.info("Migrated: renamed column 'category' -> 'bank'")
+        else:
+            conn.execute(
+                "ALTER TABLE expenses ADD COLUMN bank TEXT NOT NULL DEFAULT 'unknown'"
+            )
+            logger.info("Migrated: added 'bank' column")
 
-    def add_expense(self, date: datetime, amount: int, notes: str, category: str = 'general') -> int:
-        """Add a new expense. Returns the new expense ID."""
+    # ── Writes ───────────────────────────────────────────────────────────────
+    def add_expense(self, date: datetime, amount: int, notes: str, bank: str) -> int:
+        """Insert a new expense and return its id."""
         with self.get_connection() as conn:
             cursor = conn.execute(
-                "INSERT INTO expenses (date, amount, notes, category) VALUES (?, ?, ?, ?)",
-                (date.strftime("%Y-%m-%d"), amount, notes, category)
+                "INSERT INTO expenses (date, amount, notes, bank) VALUES (?, ?, ?, ?)",
+                (date.strftime("%Y-%m-%d"), amount, notes, bank),
             )
-            logger.info(f"Added expense: {date.strftime('%Y-%m-%d')}, {amount}, {category}")
+            logger.info("Added expense id=%s amount=%s bank=%s", cursor.lastrowid, amount, bank)
             return cursor.lastrowid
 
-    def get_expenses_by_date(self, date: datetime, category: Optional[str] = None) -> list[dict]:
-        """Get expenses for a specific date, optionally filtered by category."""
-        with self.get_connection() as conn:
-            query = """
-                SELECT id, date, amount, notes, category 
-                FROM expenses 
-                WHERE date = ?
-            """
-            params = [date.strftime("%Y-%m-%d")]
-            
-            if category is not None:
-                query += " AND category = ?"
-                params.append(category)
-                
-            query += " ORDER BY created_at"
-            
-            cursor = conn.execute(query, params)
-            rows = cursor.fetchall()
-            return [self._row_to_dict(row) for row in rows]
-
-    def get_expenses_by_range(self, start: datetime, end: datetime) -> list[dict]:
-        """Get expenses within a date range."""
-        with self.get_connection() as conn:
-            cursor = conn.execute(
-                """
-                SELECT id, date, amount, notes, category 
-                FROM expenses 
-                WHERE date BETWEEN ? AND ? 
-                ORDER BY date, created_at
-                """,
-                (start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"))
-            )
-            rows = cursor.fetchall()
-            return [self._row_to_dict(row) for row in rows]
-
-    def get_summary_by_months(
-        self, 
-        month_start: int, 
-        month_end: int, 
-        year: int, 
-        category: Optional[str] = None
-    ) -> list[dict]:
-        """Get monthly summary for a month range."""
-        with self.get_connection() as conn:
-            query = """
-                SELECT 
-                    CAST(strftime('%m', date) AS INTEGER) as month,
-                    SUM(amount) as total,
-                    COUNT(*) as count
-                FROM expenses
-                WHERE 
-                    CAST(strftime('%Y', date) AS INTEGER) = ?
-                    AND CAST(strftime('%m', date) AS INTEGER) BETWEEN ? AND ?
-            """
-            params = [year, month_start, month_end]
-
-            if category is not None:
-                query += " AND category = ?"
-                params.append(category)
-
-            query += " GROUP BY month ORDER BY month"
-
-            cursor = conn.execute(query, params)
-            rows = cursor.fetchall()
-            return [
-                {
-                    "month": row["month"],
-                    "total": row["total"],
-                    "count": row["count"]
-                }
-                for row in rows
-            ]
-        
-    def get_expense_by_id(self, expense_id: int) -> Optional[dict]:
-        """Get a single expense by ID."""
-        with self.get_connection() as conn:
-            cursor = conn.execute(
-                "SELECT id, date, amount, notes, category FROM expenses WHERE id = ?", 
-                (expense_id,)
-            )
-            row = cursor.fetchone()
-            if not row:
-                return None
-            return self._row_to_dict(row)
-
     def delete_expense(self, expense_id: int) -> bool:
-        """Delete an expense by ID. Returns True if deleted, False if not found."""
+        """Delete an expense by id. Returns True if a row was removed."""
         with self.get_connection() as conn:
             cursor = conn.execute("DELETE FROM expenses WHERE id = ?", (expense_id,))
-            deleted = cursor.rowcount > 0
-            if deleted:
-                logger.info(f"Deleted expense ID: {expense_id}")
-            return deleted
-
-    def edit_expense(
-        self, 
-        expense_id: int, 
-        new_amount: Optional[int] = None, 
-        new_notes: Optional[str] = None,
-        new_category: Optional[str] = None
-    ) -> bool:
-        """
-        Edit an expense. Only provided fields are updated.
-        Returns True if updated, False if not found.
-        """
-        expense = self.get_expense_by_id(expense_id)
-        if not expense:
+            if cursor.rowcount:
+                logger.info("Deleted expense id=%s", expense_id)
+                return True
             return False
-            
-        with self.get_connection() as conn:
-            # Build dynamic update query based on provided fields
-            updates = []
-            params = []
-            
-            if new_amount is not None:
-                updates.append("amount = ?")
-                params.append(new_amount)
-            if new_notes is not None:
-                updates.append("notes = ?")
-                params.append(new_notes)
-            if new_category is not None:
-                updates.append("category = ?")
-                params.append(new_category)
-            
-            if not updates:
-                return False  # Nothing to update
-            
-            params.append(expense_id)
-            query = f"UPDATE expenses SET {', '.join(updates)} WHERE id = ?"
-            cursor = conn.execute(query, params)
-            updated = cursor.rowcount > 0
-            
-            if updated:
-                logger.info(f"Updated expense ID: {expense_id}")
-            return updated
 
-    def _row_to_dict(self, row: sqlite3.Row) -> dict:
-        """Convert a database row to a dictionary."""
+    def update_expense(
+        self,
+        expense_id: int,
+        *,
+        amount: Optional[int] = None,
+        notes: Optional[str] = None,
+        bank: Optional[str] = None,
+        date: Optional[datetime] = None,
+    ) -> bool:
+        """Update only the provided fields of an expense. Returns True if updated."""
+        updates: list[str] = []
+        params: list[object] = []
+        if amount is not None:
+            updates.append("amount = ?")
+            params.append(amount)
+        if notes is not None:
+            updates.append("notes = ?")
+            params.append(notes)
+        if bank is not None:
+            updates.append("bank = ?")
+            params.append(bank)
+        if date is not None:
+            updates.append("date = ?")
+            params.append(date.strftime("%Y-%m-%d"))
+        if not updates:
+            return False
+
+        params.append(expense_id)
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                f"UPDATE expenses SET {', '.join(updates)} WHERE id = ?", params
+            )
+            if cursor.rowcount:
+                logger.info("Updated expense id=%s", expense_id)
+                return True
+            return False
+
+    # ── Reads ────────────────────────────────────────────────────────────────
+    def get_expense_by_id(self, expense_id: int) -> Optional[dict]:
+        with self.get_connection() as conn:
+            row = conn.execute(
+                f"SELECT {_COLUMNS} FROM expenses WHERE id = ?", (expense_id,)
+            ).fetchone()
+            return self._row_to_dict(row) if row else None
+
+    def get_expenses_by_date(
+        self, date: datetime, bank: Optional[str] = None
+    ) -> list[dict]:
+        """All expenses on a date, optionally filtered by bank."""
+        query = f"SELECT {_COLUMNS} FROM expenses WHERE date = ?"
+        params: list[object] = [date.strftime("%Y-%m-%d")]
+        if bank is not None:
+            query += " AND bank = ?"
+            params.append(bank)
+        query += " ORDER BY created_at, id"
+        with self.get_connection() as conn:
+            return [self._row_to_dict(r) for r in conn.execute(query, params)]
+
+    def get_expenses_by_month(self, month: int, year: int) -> list[dict]:
+        """All expenses within a given month/year, ordered by date."""
+        with self.get_connection() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT {_COLUMNS} FROM expenses
+                WHERE CAST(strftime('%Y', date) AS INTEGER) = ?
+                  AND CAST(strftime('%m', date) AS INTEGER) = ?
+                ORDER BY date, created_at, id
+                """,
+                (year, month),
+            )
+            return [self._row_to_dict(r) for r in rows]
+
+    # ── Helpers ──────────────────────────────────────────────────────────────
+    @staticmethod
+    def _row_to_dict(row: sqlite3.Row) -> dict:
         return {
             "id": row["id"],
             "date": datetime.strptime(row["date"], "%Y-%m-%d"),
             "amount": row["amount"],
             "notes": row["notes"],
-            "category": row["category"]
+            "bank": row["bank"],
         }
