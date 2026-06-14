@@ -5,7 +5,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # The `bank` field of every expense must be one of these values. Add new ones
 # here and they are accepted everywhere automatically.
-BANKS = ("bca1", "bca2", "mandiri")
+BANKS = ("bca1", "bca2", "mandiri", "cimb")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Amount limits (in Rupiah)

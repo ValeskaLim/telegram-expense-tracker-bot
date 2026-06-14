@@ -1,12 +1,12 @@
 # 💰 Expense Tracker Bot
 
 A personal Telegram bot to track daily expenses. Log expenses against a **bank**
-(`bca1`, `bca2`, `mandiri`) and query them by date or month. Months can be typed
+(`bca1`, `bca2`, `mandiri`, `cimb`) and query them by date or month. Months can be typed
 in **Indonesian or English** (`Desember` or `December`).
 
 **Features**
 - ✅ Quick add for today or any date this year
-- ✅ Fixed bank/payment source (`bca1`, `bca2`, `mandiri`)
+- ✅ Fixed bank/payment source (`bca1`, `bca2`, `mandiri`, `cimb`)
 - ✅ Daily check and monthly audit (with per-bank breakdown)
 - ✅ Edit and delete entries by ID
 - ✅ Indonesian/English month names, Indonesian Rupiah formatting
@@ -30,7 +30,7 @@ Examples:
 /add Makan siang 16000 bca1
 /add 16 Desember Makan siang 20000 bca1
 ```
-Bank must be one of: `bca1`, `bca2`, `mandiri`. Amounts may include thousands
+Bank must be one of: `bca1`, `bca2`, `mandiri`, `cimb`. Amounts may include thousands
 separators (`16.000` or `16000`).
 
 > ℹ️ If your note begins with a number followed by a month name (e.g.
@@ -170,7 +170,7 @@ journalctl -u expense-bot -f   # logs
 
 ## ⚙️ Configuration
 Edit `constant.py`:
-- `BANKS` — accepted bank values (default `bca1`, `bca2`, `mandiri`).
+- `BANKS` — accepted bank values (default `bca1`, `bca2`, `mandiri`, `cimb`).
 - `MIN_AMOUNT` / `MAX_AMOUNT` — amount limits (default `1` … `1,000,000,000`).
 
 ---
