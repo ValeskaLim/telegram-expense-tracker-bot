@@ -5,11 +5,13 @@ import logging
 
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     MessageHandler,
     filters,
 )
 
+import flows
 import handlers
 from config import BOT_TOKEN
 from database import Database
@@ -28,12 +30,18 @@ def build_application() -> Application:
     # Share a single Database instance with every handler via bot_data.
     app.bot_data["db"] = Database()
 
-    app.add_handler(CommandHandler(["start", "help"], handlers.start))
-    app.add_handler(CommandHandler("add", handlers.add_expense))
-    app.add_handler(CommandHandler("check", handlers.check_date))
-    app.add_handler(CommandHandler("audit", handlers.audit_month))
-    app.add_handler(CommandHandler("delete", handlers.delete_expense))
-    app.add_handler(CommandHandler("change", handlers.change_expense))
+    # Stateless main menu / help.
+    app.add_handler(CommandHandler(["start", "menu"], handlers.start))
+    app.add_handler(CommandHandler("help", handlers.help_cmd))
+
+    # The button-driven wizard owns /add /check /audit /change /delete and the
+    # menu:<action> buttons (a bare command opens the flow; a command WITH
+    # arguments runs the original typed handler). Registered before the
+    # free-text fallback so in-flow typing is captured by the active step.
+    app.add_handler(flows.build_conversation())
+
+    # 🏠 Menu / ❓ Help buttons that don't start a conversation.
+    app.add_handler(CallbackQueryHandler(handlers.menu_home, pattern=r"^menu:(home|help)$"))
 
     # Fallbacks: unknown commands first, then any other free text.
     app.add_handler(MessageHandler(filters.COMMAND, handlers.unknown_command))

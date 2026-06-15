@@ -5,6 +5,7 @@ A personal Telegram bot to track daily expenses. Log expenses against a **bank**
 in **Indonesian or English** (`Desember` or `December`).
 
 **Features**
+- ✅ **Button menu** — tap through every action (Add / Check / Audit / Change / Delete); no syntax to remember
 - ✅ Quick add for today or any date this year
 - ✅ Fixed bank/payment source (`bca1`, `bca2`, `mandiri`, `cimb`)
 - ✅ Daily check and monthly audit (with per-bank breakdown)
@@ -15,7 +16,24 @@ in **Indonesian or English** (`Desember` or `December`).
 
 ---
 
-## 📖 Commands
+## 🖱️ Button menu (no typing required)
+Send **/start** or **/menu** and tap a button. Each action is a short, guided
+wizard that edits one message in place as you go:
+
+- **➕ Add** — pick the day (or **📅 Today**), pick the month, type the note, type
+  the amount, pick the bank, then **✅ Submit**.
+- **📅 Check** — pick a date (or **Today**) and an optional bank filter.
+- **📊 Audit** — pick a month (or **This month**) and a year.
+- **✏️ Change** — send the entry **ID**, choose the field, enter the new value.
+- **🗑️ Delete** — send the entry **ID** and confirm.
+
+Cancel at any step with **❌ Cancel** or **/cancel**.
+
+---
+
+## 📖 Commands (typed fast path)
+> Every typed command below still works. Sending a command with **no arguments**
+> (e.g. just `/add`) opens its button wizard instead.
 
 ### ➕ `/add` — log an expense
 The **last** word is the bank, the one before it is the amount, and everything
@@ -97,7 +115,9 @@ Common abbreviations also work (`Des`, `Dec`, `Sep`, …).
 | File | Responsibility |
 |------|----------------|
 | `main.py` | Entry point — builds the app and registers handlers |
-| `handlers.py` | One function per Telegram command |
+| `flows.py` | Button wizard — one `ConversationHandler` driving every action |
+| `keyboards.py` | Inline-keyboard builders (pure, reused across flows) |
+| `handlers.py` | Typed commands and the shared `render_*` response builders |
 | `database.py` | SQLite access layer (`Database` class) |
 | `utils.py` | Date/amount parsing & formatting helpers (pure, unit-tested) |
 | `constant.py` | Banks, month maps, amount limits |
@@ -176,6 +196,13 @@ Edit `constant.py`:
 ---
 
 ## 📝 Version History
+### v4.0 (Button UI)
+- Full **inline-button menu** and a step-by-step wizard for every action.
+- Each flow edits a single message in place (tap the day/month/bank, type only
+  the note and amount).
+- Typed commands kept as a fast path; rendering shared via `render_*` helpers.
+- New `flows.py` (`ConversationHandler`) and `keyboards.py`.
+
 ### v3.0 (Refactored command set)
 - New commands: `/add`, `/check`, `/audit`, `/change`, `/delete`.
 - `category` replaced by a fixed `bank` field with validation.
