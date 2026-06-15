@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import html
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from constant import BANKS, MAX_AMOUNT, MIN_AMOUNT, MONTH_NAMES_ID, MONTHS
@@ -10,14 +10,18 @@ from constant import BANKS, MAX_AMOUNT, MIN_AMOUNT, MONTH_NAMES_ID, MONTHS
 # ─────────────────────────────────────────────────────────────────────────────
 # Time zone aware "now"
 # ─────────────────────────────────────────────────────────────────────────────
-# Expenses are logged against the user's local date (Asia/Jakarta), not the
-# server's. This keeps "today" correct even when the VPS runs in UTC.
+# Expenses are logged against the user's local date (Asia/Jakarta / WIB), not
+# the server's. This keeps "today" — and the 23:00 WIB daily report — correct
+# even when the VPS runs in another timezone.
 try:
     from zoneinfo import ZoneInfo
 
-    _TZ: Optional["ZoneInfo"] = ZoneInfo("Asia/Jakarta")
-except Exception:  # pragma: no cover - falls back to server local time
-    _TZ = None
+    _TZ = ZoneInfo("Asia/Jakarta")
+except Exception:  # pragma: no cover - no tzdata: use a fixed WIB (UTC+7) offset
+    _TZ = timezone(timedelta(hours=7))
+
+# Public handle for scheduling (e.g. JobQueue.run_daily). Always a real tzinfo.
+JAKARTA_TZ = _TZ
 
 
 def now() -> datetime:

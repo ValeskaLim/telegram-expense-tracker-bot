@@ -32,6 +32,19 @@ Cancel at any step with **❌ Cancel** or **/cancel**.
 
 ---
 
+## 🔔 Daily report
+Every night at **23:00 WIB (Asia/Jakarta)** the bot sends a summary of that
+day's expenses — the entries, the total, and a per-bank breakdown. Your chat is
+subscribed automatically when you **/start**.
+
+- Tap **🔔 Daily report** (or send `/report`) to turn it on/off.
+- Send `/report_now` to preview today's report right away.
+
+> Requires the `job-queue` extra (`python-telegram-bot[job-queue]`), which runs
+> the scheduler in-process — no cron needed.
+
+---
+
 ## 📖 Commands (typed fast path)
 > Every typed command below still works. Sending a command with **no arguments**
 > (e.g. just `/add`) opens its button wizard instead.
@@ -197,6 +210,11 @@ Edit `constant.py`:
 ---
 
 ## 📝 Version History
+### v4.1 (Daily report)
+- Automatic nightly summary at **23:00 WIB** via the in-process `JobQueue`.
+- `🔔 Daily report` toggle, `/report`, and `/report_now` preview.
+- New `report_subscribers` table (subscribed chats survive restarts).
+
 ### v4.0 (Button UI)
 - Full **reply-keyboard menu** and a step-by-step wizard for every action.
 - Choices pop up as a keyboard panel at the input box; typed fields (notes,

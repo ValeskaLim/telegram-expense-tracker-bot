@@ -61,6 +61,15 @@ class Database:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_expenses_date_bank ON expenses(date, bank)"
             )
+            # Chats subscribed to the nightly (23:00 WIB) expense report.
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS report_subscribers (
+                    chat_id INTEGER PRIMARY KEY,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
         logger.info("Database initialized at %s", self.db_path)
 
     def _migrate(self, conn: sqlite3.Connection) -> None:
@@ -174,6 +183,37 @@ class Database:
                 (year, month),
             )
             return [self._row_to_dict(r) for r in rows]
+
+    # ── Daily-report subscribers ───────────────────────────────────────────────
+    def add_subscriber(self, chat_id: int) -> bool:
+        """Subscribe a chat to the daily report. Returns True if newly added."""
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                "INSERT OR IGNORE INTO report_subscribers (chat_id) VALUES (?)",
+                (chat_id,),
+            )
+            return bool(cursor.rowcount)
+
+    def remove_subscriber(self, chat_id: int) -> bool:
+        """Unsubscribe a chat. Returns True if a row was removed."""
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                "DELETE FROM report_subscribers WHERE chat_id = ?", (chat_id,)
+            )
+            return bool(cursor.rowcount)
+
+    def is_subscriber(self, chat_id: int) -> bool:
+        with self.get_connection() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM report_subscribers WHERE chat_id = ?", (chat_id,)
+            ).fetchone()
+            return row is not None
+
+    def get_subscribers(self) -> list[int]:
+        with self.get_connection() as conn:
+            return [r["chat_id"] for r in conn.execute(
+                "SELECT chat_id FROM report_subscribers ORDER BY chat_id"
+            )]
 
     # ── Helpers ──────────────────────────────────────────────────────────────
     @staticmethod

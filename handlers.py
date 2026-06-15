@@ -10,6 +10,7 @@ import logging
 
 from telegram import Update
 from telegram.constants import ParseMode
+from telegram.error import Forbidden
 from telegram.ext import ContextTypes
 
 from constant import BANKS, MONTH_NAMES_ID
@@ -69,6 +70,8 @@ HELP_TEXT = (
     f"{AUDIT_USAGE}\n\n"
     f"{CHANGE_USAGE}\n\n"
     f"{DELETE_USAGE}\n\n"
+    "<b>🔔 Daily report</b>\nA summary is sent every night at <b>23:00 WIB</b>.\n"
+    "<code>/report</code> turns it on/off · <code>/report_now</code> previews it.\n\n"
     "Each entry shows its <code>ID</code> in /check and /audit — use it with "
     "/change and /delete."
 )
@@ -76,7 +79,9 @@ HELP_TEXT = (
 MENU_TEXT = (
     "👋 <b>Expense Tracker</b>\n\n"
     "Tap a button to get started — or type a command, e.g. "
-    "<code>/add Makan 16000 bca1</code>."
+    "<code>/add Makan 16000 bca1</code>.\n\n"
+    "🔔 A daily report is sent every night at <b>23:00 WIB</b>. Tap "
+    "<b>🔔 Daily report</b> to turn it on/off, or /report_now to preview it."
 )
 
 _MANAGE_HINT = "Use <code>/change &lt;id&gt; …</code> or <code>/delete &lt;id&gt;</code> to manage entries."
@@ -186,11 +191,42 @@ def render_audit(expenses: list[dict], month: int, year: int) -> str:
     return "\n".join(lines)
 
 
+def render_daily(expenses: list[dict], date) -> str:
+    """The nightly report: today's entries, total, and a per-bank breakdown."""
+    header = f"🌙 <b>Daily report — {format_date_id(date)}</b>"
+    if not expenses:
+        return f"{header}\n\n📭 No expenses logged today."
+    total = sum(e["amount"] for e in expenses)
+    lines = [header, ""]
+    lines += [_format_entry(e) for e in expenses]
+    lines += ["", f"💰 <b>Total: {format_rupiah(total)}</b>"]
+
+    by_bank: dict[str, int] = {}
+    for e in expenses:
+        by_bank[e["bank"]] = by_bank.get(e["bank"], 0) + e["amount"]
+    if len(by_bank) > 1:
+        ordered = [b for b in BANKS if b in by_bank] + [b for b in by_bank if b not in BANKS]
+        lines.append("")
+        lines.append("<b>Per bank:</b>")
+        for bank in ordered:
+            lines.append(f"• {esc(bank)}: {format_rupiah(by_bank[bank])}")
+    return "\n".join(lines)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # /start, /menu, /help and the 🏠 Menu / ❓ Help buttons
 # ─────────────────────────────────────────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/start and /menu — show the main menu."""
+    """/start — show the main menu and enable the daily report for this chat."""
+    try:
+        _db(context).add_subscriber(update.effective_chat.id)
+    except Exception as e:  # pragma: no cover - non-fatal
+        logger.warning("Could not subscribe chat to daily report: %s", e)
+    await _reply(update, MENU_TEXT, reply_markup=main_menu_kb())
+
+
+async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/menu — show the main menu."""
     await _reply(update, MENU_TEXT, reply_markup=main_menu_kb())
 
 
@@ -395,6 +431,77 @@ async def change_expense(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     await _reply(update, render_updated(expense_id, field_label, old_display, new_display))
     logger.info("Updated expense id=%s field=%s", expense_id, field)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Daily report (23:00 WIB)
+# ─────────────────────────────────────────────────────────────────────────────
+async def report_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/report and the 🔔 Daily report button — toggle the nightly report."""
+    chat_id = update.effective_chat.id
+    db = _db(context)
+    try:
+        if db.is_subscriber(chat_id):
+            db.remove_subscriber(chat_id)
+            msg = "🔕 Daily report is now <b>OFF</b>."
+        else:
+            db.add_subscriber(chat_id)
+            msg = (
+                "🔔 Daily report is now <b>ON</b> — I'll send today's summary every "
+                "night at <b>23:00 WIB</b>."
+            )
+    except Exception as e:
+        logger.exception("Failed to toggle daily report: %s", e)
+        await _error(update, "Something went wrong. Please try again.")
+        return
+    await _reply(update, msg, reply_markup=main_menu_kb())
+
+
+async def report_now(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/report_now — send today's report immediately (a preview)."""
+    date = today()
+    try:
+        expenses = _db(context).get_expenses_by_date(date, None)
+    except Exception as e:
+        logger.exception("Failed /report_now: %s", e)
+        await _error(update, "Something went wrong. Please try again.")
+        return
+    await _reply(update, render_daily(expenses, date), reply_markup=main_menu_kb())
+
+
+async def daily_report_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """JobQueue callback (23:00 WIB): send each subscriber today's report."""
+    db = context.bot_data["db"]
+    date = today()
+    try:
+        subscribers = db.get_subscribers()
+    except Exception as e:
+        logger.exception("Daily report: could not load subscribers: %s", e)
+        return
+    if not subscribers:
+        logger.info("Daily report: no subscribers")
+        return
+    try:
+        expenses = db.get_expenses_by_date(date, None)
+    except Exception as e:
+        logger.exception("Daily report: query failed: %s", e)
+        return
+
+    text = render_daily(expenses, date)
+    sent = 0
+    for chat_id in subscribers:
+        try:
+            await context.bot.send_message(chat_id, text, parse_mode=ParseMode.HTML)
+            sent += 1
+        except Forbidden:
+            logger.warning("Daily report: chat %s blocked the bot; unsubscribing", chat_id)
+            try:
+                db.remove_subscriber(chat_id)
+            except Exception:
+                pass
+        except Exception as e:
+            logger.exception("Daily report: send to %s failed: %s", chat_id, e)
+    logger.info("Daily report: sent to %d/%d subscriber(s) for %s", sent, len(subscribers), date.date())
 
 
 # ─────────────────────────────────────────────────────────────────────────────

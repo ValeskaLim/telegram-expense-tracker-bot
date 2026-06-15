@@ -29,6 +29,7 @@ MENU_AUDIT = "📊 Audit"
 MENU_CHANGE = "✏️ Change"
 MENU_DELETE = "🗑️ Delete"
 MENU_HELP = "❓ Help"
+MENU_REPORT = "🔔 Daily report"
 
 # Field picker labels -> internal field key (Change flow)
 FIELD_LABELS = {
@@ -60,7 +61,12 @@ def _kb(rows: list[list[str]], placeholder: str, one_time: bool = True) -> Reply
 # ─────────────────────────────────────────────────────────────────────────────
 def main_menu_kb() -> ReplyKeyboardMarkup:
     return _kb(
-        [[MENU_ADD, MENU_CHECK], [MENU_AUDIT, MENU_CHANGE], [MENU_DELETE, MENU_HELP]],
+        [
+            [MENU_ADD, MENU_CHECK],
+            [MENU_AUDIT, MENU_CHANGE],
+            [MENU_DELETE, MENU_HELP],
+            [MENU_REPORT],
+        ],
         "Tap an action…",
         one_time=False,
     )
