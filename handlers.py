@@ -10,7 +10,6 @@ import logging
 
 from telegram import Update
 from telegram.constants import ParseMode
-from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from constant import BANKS, MONTH_NAMES_ID
@@ -198,23 +197,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/help — show the full command reference plus the menu."""
     await _reply(update, HELP_TEXT, reply_markup=main_menu_kb())
-
-
-async def menu_home(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Callback for the 🏠 Menu (menu:home) and ❓ Help (menu:help) buttons.
-
-    These don't start a conversation — they just (re)display the menu/help in
-    place of whatever message carried the button.
-    """
-    query = update.callback_query
-    await query.answer()
-    text = HELP_TEXT if query.data == "menu:help" else MENU_TEXT
-    try:
-        await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=main_menu_kb())
-    except BadRequest as e:
-        # "message is not modified" if the menu is already shown — harmless.
-        if "not modified" not in str(e).lower():
-            raise
 
 
 # ─────────────────────────────────────────────────────────────────────────────

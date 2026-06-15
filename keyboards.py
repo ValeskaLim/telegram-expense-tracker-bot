@@ -1,146 +1,119 @@
-"""Inline keyboard builders for the button-driven UI.
+"""Reply-keyboard builders for the button-driven UI.
 
-Pure functions, no Telegram I/O. A tap is routed by the active conversation
-*state* (see flows.py), not by callback prefix, so the same keyboard (e.g. the
-day grid) is reused across the Add / Check / Change flows.
-
-Callback-data scheme:
-    menu:<add|check|audit|change|delete|help|home>
-    day:<1-31> | day:today
-    mon:<1-12> | mon:today
-    yr:<YYYY>
-    bank:<name> | bank:all
-    fld:<amount|notes|bank|date>
-    ok:<submit|delete>
-    cancel
+These are ``ReplyKeyboardMarkup`` panels that "pop up" attached to the text
+input. Tapping a button sends its label as a normal message, which the matching
+conversation state (see flows.py) interprets. Typed steps (notes/nominal/ID)
+use a panel with only a Cancel button plus an ``input_field_placeholder`` so the
+field being entered is clearly named inside the input box.
 """
 from __future__ import annotations
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove
 
 from constant import BANKS, MONTH_NAMES_ID
 from utils import now
 
-CANCEL = "cancel"
+# ─────────────────────────────────────────────────────────────────────────────
+# Button labels (flows.py imports these to interpret taps)
+# ─────────────────────────────────────────────────────────────────────────────
+CANCEL = "❌ Cancel"
+TODAY = "📅 Today"
+THIS_MONTH = "📅 This month"
+ALL_BANKS = "🏦 All banks"
+SUBMIT = "✅ Submit"
+CONFIRM_DELETE = "🗑️ Confirm delete"
+
+MENU_ADD = "➕ Add"
+MENU_CHECK = "📅 Check"
+MENU_AUDIT = "📊 Audit"
+MENU_CHANGE = "✏️ Change"
+MENU_DELETE = "🗑️ Delete"
+MENU_HELP = "❓ Help"
+
+# Field picker labels -> internal field key (Change flow)
+FIELD_LABELS = {
+    "💰 Amount": "amount",
+    "📝 Notes": "notes",
+    "🏦 Bank": "bank",
+    "📅 Date": "date",
+}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
-def _rows(buttons: list[InlineKeyboardButton], per_row: int) -> list[list[InlineKeyboardButton]]:
-    """Chunk a flat list of buttons into rows of at most `per_row`."""
-    return [buttons[i : i + per_row] for i in range(0, len(buttons), per_row)]
+def _chunk(items: list[str], per_row: int) -> list[list[str]]:
+    return [items[i : i + per_row] for i in range(0, len(items), per_row)]
 
 
-def _cancel_row() -> list[InlineKeyboardButton]:
-    return [InlineKeyboardButton("❌ Cancel", callback_data=CANCEL)]
+def _kb(rows: list[list[str]], placeholder: str, one_time: bool = True) -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        rows,
+        resize_keyboard=True,
+        one_time_keyboard=one_time,
+        input_field_placeholder=placeholder,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Keyboards
 # ─────────────────────────────────────────────────────────────────────────────
-def main_menu_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton("➕ Add", callback_data="menu:add"),
-                InlineKeyboardButton("📅 Check", callback_data="menu:check"),
-            ],
-            [
-                InlineKeyboardButton("📊 Audit", callback_data="menu:audit"),
-                InlineKeyboardButton("✏️ Change", callback_data="menu:change"),
-            ],
-            [
-                InlineKeyboardButton("🗑️ Delete", callback_data="menu:delete"),
-                InlineKeyboardButton("❓ Help", callback_data="menu:help"),
-            ],
-        ]
+def main_menu_kb() -> ReplyKeyboardMarkup:
+    return _kb(
+        [[MENU_ADD, MENU_CHECK], [MENU_AUDIT, MENU_CHANGE], [MENU_DELETE, MENU_HELP]],
+        "Tap an action…",
+        one_time=False,
     )
 
 
-def menu_button_kb() -> InlineKeyboardMarkup:
-    """A single '🏠 Menu' button shown at the end of a finished flow."""
-    return InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Menu", callback_data="menu:home")]])
-
-
-def day_kb(today: bool = True) -> InlineKeyboardMarkup:
-    """'📅 Today' (optional) + a 1–31 grid (7 per row) + Cancel."""
-    rows: list[list[InlineKeyboardButton]] = []
+def day_kb(today: bool = True) -> ReplyKeyboardMarkup:
+    rows: list[list[str]] = []
     if today:
-        rows.append([InlineKeyboardButton("📅 Today", callback_data="day:today")])
-    days = [InlineKeyboardButton(str(d), callback_data=f"day:{d}") for d in range(1, 32)]
-    rows.extend(_rows(days, 7))
-    rows.append(_cancel_row())
-    return InlineKeyboardMarkup(rows)
+        rows.append([TODAY])
+    rows += _chunk([str(d) for d in range(1, 32)], 7)
+    rows.append([CANCEL])
+    return _kb(rows, "Tap a day 1–31…")
 
 
-def month_kb(today: bool = False) -> InlineKeyboardMarkup:
-    """12 month buttons (Indonesian abbreviations, 3 per row) + Cancel.
-
-    When `today` is set, a '📅 This month' shortcut is added at the top.
-    """
-    rows: list[list[InlineKeyboardButton]] = []
+def month_kb(today: bool = False) -> ReplyKeyboardMarkup:
+    rows: list[list[str]] = []
     if today:
-        rows.append([InlineKeyboardButton("📅 This month", callback_data="mon:today")])
-    months = [
-        InlineKeyboardButton(MONTH_NAMES_ID[m][:3], callback_data=f"mon:{m}")
-        for m in range(1, 13)
-    ]
-    rows.extend(_rows(months, 3))
-    rows.append(_cancel_row())
-    return InlineKeyboardMarkup(rows)
+        rows.append([THIS_MONTH])
+    rows += _chunk([MONTH_NAMES_ID[m][:3] for m in range(1, 13)], 3)
+    rows.append([CANCEL])
+    return _kb(rows, "Tap a month…")
 
 
-def year_kb() -> InlineKeyboardMarkup:
-    """Current year and the two previous years + Cancel."""
+def year_kb() -> ReplyKeyboardMarkup:
     y = now().year
-    years = [InlineKeyboardButton(str(yr), callback_data=f"yr:{yr}") for yr in (y, y - 1, y - 2)]
-    return InlineKeyboardMarkup([years, _cancel_row()])
+    return _kb([[str(y), str(y - 1), str(y - 2)], [CANCEL]], "Tap a year…")
 
 
-def bank_kb(include_all: bool = False) -> InlineKeyboardMarkup:
-    """One button per configured bank (2 per row) + Cancel.
-
-    When `include_all` is set, a '🏦 All banks' shortcut is added at the top
-    (used by Check as a "no filter" option).
-    """
-    rows: list[list[InlineKeyboardButton]] = []
+def bank_kb(include_all: bool = False) -> ReplyKeyboardMarkup:
+    rows: list[list[str]] = []
     if include_all:
-        rows.append([InlineKeyboardButton("🏦 All banks", callback_data="bank:all")])
-    banks = [InlineKeyboardButton(b, callback_data=f"bank:{b}") for b in BANKS]
-    rows.extend(_rows(banks, 2))
-    rows.append(_cancel_row())
-    return InlineKeyboardMarkup(rows)
+        rows.append([ALL_BANKS])
+    rows += _chunk(list(BANKS), 2)
+    rows.append([CANCEL])
+    return _kb(rows, "Tap a bank…")
 
 
-def field_kb() -> InlineKeyboardMarkup:
-    """Field picker for the Change flow."""
-    return InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton("💰 Amount", callback_data="fld:amount"),
-                InlineKeyboardButton("📝 Notes", callback_data="fld:notes"),
-            ],
-            [
-                InlineKeyboardButton("🏦 Bank", callback_data="fld:bank"),
-                InlineKeyboardButton("📅 Date", callback_data="fld:date"),
-            ],
-            _cancel_row(),
-        ]
+def field_kb() -> ReplyKeyboardMarkup:
+    return _kb(
+        [["💰 Amount", "📝 Notes"], ["🏦 Bank", "📅 Date"], [CANCEL]],
+        "Tap a field…",
     )
 
 
-def confirm_kb(action: str = "submit") -> InlineKeyboardMarkup:
-    """Confirm/Cancel keyboard. `action` is 'submit' (Add) or 'delete' (Delete)."""
-    label = {"submit": "✅ Submit", "delete": "🗑️ Confirm delete"}.get(action, "✅ Confirm")
-    return InlineKeyboardMarkup(
-        [
-            [InlineKeyboardButton(label, callback_data=f"ok:{action}")],
-            _cancel_row(),
-        ]
-    )
+def confirm_kb(action: str = "submit") -> ReplyKeyboardMarkup:
+    label = SUBMIT if action == "submit" else CONFIRM_DELETE
+    return _kb([[label], [CANCEL]], "Confirm…")
 
 
-def cancel_kb() -> InlineKeyboardMarkup:
-    """Just a Cancel button — shown while waiting for free-text input."""
-    return InlineKeyboardMarkup([_cancel_row()])
+def text_kb(placeholder: str) -> ReplyKeyboardMarkup:
+    """A typed step: only Cancel, with the field named in the input box."""
+    return _kb([[CANCEL]], placeholder, one_time=False)
+
+
+def remove_kb() -> ReplyKeyboardRemove:
+    return ReplyKeyboardRemove()

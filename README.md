@@ -16,16 +16,17 @@ in **Indonesian or English** (`Desember` or `December`).
 
 ---
 
-## 🖱️ Button menu (no typing required)
-Send **/start** or **/menu** and tap a button. Each action is a short, guided
-wizard that edits one message in place as you go:
+## 🖱️ Button menu (no syntax to remember)
+Send **/start** or **/menu** and tap a button. Choices pop up as a **keyboard
+panel attached to your input box**, and the typed fields (notes, nominal) show a
+clear placeholder so you always know exactly what each value is for:
 
-- **➕ Add** — pick the day (or **📅 Today**), pick the month, type the note, type
-  the amount, pick the bank, then **✅ Submit**.
+- **➕ Add** — pick the day (or **📅 Today**), pick the month, type the *notes*,
+  type the *nominal*, pick the bank, then **✅ Submit**.
 - **📅 Check** — pick a date (or **Today**) and an optional bank filter.
 - **📊 Audit** — pick a month (or **This month**) and a year.
-- **✏️ Change** — send the entry **ID**, choose the field, enter the new value.
-- **🗑️ Delete** — send the entry **ID** and confirm.
+- **✏️ Change** — type the entry **ID**, tap the field, enter the new value.
+- **🗑️ Delete** — type the entry **ID** and confirm.
 
 Cancel at any step with **❌ Cancel** or **/cancel**.
 
@@ -197,9 +198,9 @@ Edit `constant.py`:
 
 ## 📝 Version History
 ### v4.0 (Button UI)
-- Full **inline-button menu** and a step-by-step wizard for every action.
-- Each flow edits a single message in place (tap the day/month/bank, type only
-  the note and amount).
+- Full **reply-keyboard menu** and a step-by-step wizard for every action.
+- Choices pop up as a keyboard panel at the input box; typed fields (notes,
+  nominal) show a labeled placeholder so each value maps to one field.
 - Typed commands kept as a fast path; rendering shared via `render_*` helpers.
 - New `flows.py` (`ConversationHandler`) and `keyboards.py`.
 

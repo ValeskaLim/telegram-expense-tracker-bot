@@ -5,7 +5,6 @@ import logging
 
 from telegram.ext import (
     Application,
-    CallbackQueryHandler,
     CommandHandler,
     MessageHandler,
     filters,
@@ -39,9 +38,6 @@ def build_application() -> Application:
     # arguments runs the original typed handler). Registered before the
     # free-text fallback so in-flow typing is captured by the active step.
     app.add_handler(flows.build_conversation())
-
-    # 🏠 Menu / ❓ Help buttons that don't start a conversation.
-    app.add_handler(CallbackQueryHandler(handlers.menu_home, pattern=r"^menu:(home|help)$"))
 
     # Fallbacks: unknown commands first, then any other free text.
     app.add_handler(MessageHandler(filters.COMMAND, handlers.unknown_command))
